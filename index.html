@@ -1015,9 +1015,7 @@
                     <div class="pt-3 border-t border-gray-100 flex justify-end flex-wrap gap-2 card-actions">
                         <button onclick="whatsappEquipo(${eq.id})" class="px-3 py-1.5 text-sm rounded-md font-medium text-green-700 bg-green-50 hover:bg-green-100 transition-colors flex items-center gap-1"><i class="fa-brands fa-whatsapp"></i> WhatsApp</button>
                         <button onclick="entregarEquipo(${eq.id})" class="px-3 py-1.5 text-sm rounded-md font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors flex items-center gap-1"><i class="fa-solid fa-handshake"></i> Entregar</button>
-                        <button onclick="printBoleta(${eq.id})" class="px-3 py-1.5 text-sm rounded-md font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors flex items-center gap-1">
-                            <i class="fa-solid fa-print"></i> Imprimir
-                        </button>
+                        <button onclick="enviarOrden(${eq.id})" class="px-3 py-1.5 text-sm rounded-md font-medium text-green-700 bg-green-50 hover:bg-green-100 transition-colors flex items-center gap-1"><i class="fa-brands fa-whatsapp"></i> Enviar orden</button>
                         <button onclick="openEditModal('equipos', ${eq.id})" class="px-3 py-1.5 text-sm rounded-md font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors flex items-center gap-1">
                             <i class="fa-solid fa-pen-to-square"></i> Editar
                         </button>
@@ -1695,11 +1693,11 @@
             return d.length >= 8 && d.length <= 15 ? d : '';
         }
 
-        function waAbrir(raw) {
+        function waAbrir(raw, texto = '') {
             if (!String(raw || '').replace(/\D/g, '')) { showToast('Teléfono no especificado', 'error'); return; }
             const num = waNumero(raw);
             if (!num) { showToast('Teléfono no válido', 'error'); return; }
-            const url = 'https://wa.me/' + num;
+            const url = 'https://wa.me/' + num + (texto ? '?text=' + encodeURIComponent(texto) : '');
             const w = window.open(url, '_blank');
             if (w) { try { w.opener = null; } catch (e) {} } else { location.href = url; }
         }
@@ -1708,10 +1706,67 @@
             const c = db.clientes.find(x => x.id === id);
             waAbrir(c ? c.phone : '');
         };
+        // Resumen de la orden en texto, listo para WhatsApp
+        function resumenOrden(e) {
+            ensureOrderNumbers();
+            const v = x => (x && String(x).trim()) ? String(x).trim() : '-';
+            const equipo = [e.type, e.plate].filter(x => x && String(x).trim() && String(x).trim() !== '-').join(' - ') || '-';
+            const sep = '==========';
+            return [`Orden Nº ${e.orderNo}`, sep, `Dueño: ${v(e.owner)}`, `Equipo y Matrícula: ${equipo}`, sep,
+                `Falla: ${v(e.fault)}`, `Repuesto: ${v(e.part)}`, `Descripción: ${v(e.desc)}`, sep, `Costo Total: ${money(eqTotal(e))}`].join('\n');
+        }
         window.whatsappEquipo = function(id) {
             const e = db.equipos.find(x => x.id === id);
             if (!e) return;
-            waAbrir(String(e.phone || '').replace(/\D/g, '') ? e.phone : phoneFor(e.owner));
+            waAbrir(String(e.phone || '').replace(/\D/g, '') ? e.phone : phoneFor(e.owner), resumenOrden(e));
+        };
+
+        // ================= ENVIAR ORDEN (IMAGEN POR WHATSAPP) =================
+        window.enviarOrden = function(id) {
+            const eq = db.equipos.find(e => e.id === id);
+            if (!eq) return;
+            ensureOrderNumbers();
+            const has = v => v && String(v).trim() && String(v).trim() !== '-';
+            const cut = (v, n) => { v = String(v); return v.length > n ? v.slice(0, n - 1) + '…' : v; };
+            const rows = [['Fecha', new Date(eq.timestamp).toLocaleDateString('es-UY')], ['Dueño', eq.owner], ['Teléfono', eq.phone], ['Equipo', eq.type], ['Matrícula', eq.plate], ['Falla', eq.fault], ['Repuesto', eq.part], ['Estado', eq.status]].filter(r => has(r[1]));
+            const tot = [['Costo', money(eqTotal(eq))]];
+            const W = 900, K = 2, F = 'Segoe UI, Arial, sans-serif';
+            const mx = document.createElement('canvas').getContext('2d'); mx.font = `22px ${F}`;
+            const wrap = (t, w) => { const out = []; String(t).split(/\n/).forEach(par => { let ln = ''; par.split(/\s+/).forEach(wd => { const t2 = ln ? ln + ' ' + wd : wd; if (mx.measureText(t2).width > w && ln) { out.push(ln); ln = wd; } else ln = t2; }); out.push(ln); }); return out; };
+            const descL = has(eq.desc) ? wrap(eq.desc, W - 120).slice(0, 10) : [];
+            const H = 200 + rows.length * 56 + (descL.length ? 54 + descL.length * 34 : 0) + 40 + tot.length * 60 + 80;
+            const c = document.createElement('canvas'); c.width = W * K; c.height = H * K;
+            const x = c.getContext('2d'); x.scale(K, K);
+            x.fillStyle = '#eff6ff'; x.fillRect(0, 0, W, H);
+            x.fillStyle = '#ffffff'; x.fillRect(30, 30, W - 60, H - 60);
+            x.fillStyle = '#2563eb'; x.fillRect(30, 30, W - 60, 120);
+            x.textAlign = 'left'; x.fillStyle = '#ffffff';
+            x.font = `bold 34px ${F}`; x.fillText(cut(NOMBRE_TALLER, 30), 60, 85);
+            x.font = `20px ${F}`; x.fillText(`Orden de servicio N° ${eq.orderNo}`, 60, 120);
+            let y = 200;
+            rows.forEach(([l, v]) => { x.textAlign = 'left'; x.fillStyle = '#6b7280'; x.font = `22px ${F}`; x.fillText(l, 60, y); x.textAlign = 'right'; x.fillStyle = '#111827'; x.font = `bold 24px ${F}`; x.fillText(cut(v, 34), W - 60, y); y += 56; });
+            if (descL.length) { x.textAlign = 'left'; x.fillStyle = '#6b7280'; x.font = `22px ${F}`; x.fillText('Descripción', 60, y); y += 38; x.fillStyle = '#111827'; descL.forEach(l => { x.fillText(l, 60, y); y += 34; }); y += 16; }
+            x.strokeStyle = '#e5e7eb'; x.lineWidth = 1; x.beginPath(); x.moveTo(60, y - 24); x.lineTo(W - 60, y - 24); x.stroke(); y += 16;
+            tot.forEach(([l, v]) => { x.textAlign = 'left'; x.fillStyle = '#4b5563'; x.font = `22px ${F}`; x.fillText(l, 60, y); x.textAlign = 'right'; x.fillStyle = '#2563eb'; x.font = `bold 30px ${F}`; x.fillText(v, W - 60, y); y += 60; });
+            x.textAlign = 'left'; x.fillStyle = '#9ca3af'; x.font = `14px ${F}`; x.fillText(`Generado el ${new Date().toLocaleDateString('es-UY')}`, 60, H - 50);
+            const num = String(eq.phone || '').replace(/\D/g, '') ? eq.phone : phoneFor(eq.owner);
+            const nom = String(eq.owner || '').split(' ')[0].replace(/^-$/, '');
+            const texto = `¡Hola${nom ? ' ' + nom : ''}! Te enviamos la orden N° ${eq.orderNo} de ${NOMBRE_TALLER}.`;
+            // La imagen se crea al instante (sin esperas) para no perder el permiso del toque en el celular
+            const bin = atob(c.toDataURL('image/png').split(',')[1]), u8 = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+            const nombre = `orden_${eq.orderNo}.png`, blob = new Blob([u8], { type: 'image/png' }), file = new File([blob], nombre, { type: 'image/png' });
+            const movil = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            const compartir = movil && navigator.canShare && navigator.canShare({ files: [file] }) ? navigator.share({ files: [file], title: 'Orden de servicio', text: texto }) : null;
+            if (compartir) {
+                rsDownload(blob, nombre);
+                compartir.then(() => showToast('Orden enviada', 'success')).catch(err => { if (err && err.name !== 'AbortError') showToast('No se pudo compartir. La imagen quedó guardada.', 'error'); });
+            } else {
+                // PC: se copia la imagen (sin descargar nada) y se abre el chat; solo hay que pegarla con Ctrl+V
+                const copiar = navigator.clipboard && window.ClipboardItem ? navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]) : Promise.reject(new Error('sin portapapeles'));
+                copiar.then(() => { showToast('Imagen copiada. En el chat pega con Ctrl+V y envía.', 'success'); waAbrir(num, texto); })
+                    .catch(() => { rsDownload(blob, nombre); showToast('Imagen guardada. Adjúntala en el chat de WhatsApp.'); setTimeout(() => waAbrir(num, texto), 700); });
+            }
         };
 
         // ================= EQUIPOS ENTREGADOS =================
