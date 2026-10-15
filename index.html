@@ -1751,7 +1751,7 @@
             x.textAlign = 'left'; x.fillStyle = '#9ca3af'; x.font = `14px ${F}`; x.fillText(`Generado el ${new Date().toLocaleDateString('es-UY')}`, 60, H - 50);
             const num = String(eq.phone || '').replace(/\D/g, '') ? eq.phone : phoneFor(eq.owner);
             const nom = String(eq.owner || '').split(' ')[0].replace(/^-$/, '');
-            const texto = `¡Hola${nom ? ' ' + nom : ''}! Te enviamos la orden N° ${eq.orderNo} de ${NOMBRE_TALLER}.`;
+            const texto = `¡Hola${nom ? ' ' + nom : ''}! Te adjunto la orden de tu equipo!.`;
             // La imagen se crea al instante (sin esperas) para no perder el permiso del toque en el celular
             const bin = atob(c.toDataURL('image/png').split(',')[1]), u8 = new Uint8Array(bin.length);
             for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
